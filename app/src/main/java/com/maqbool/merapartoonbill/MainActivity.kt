@@ -3,8 +3,12 @@ package com.maqbool.merapartoonbill
 import android.app.Activity
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.webkit.JavascriptInterface
+import android.webkit.SafeBrowsingResponse
+import android.webkit.SslErrorHandler
+import android.net.http.SslError
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
@@ -20,34 +24,64 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        WebView.setWebContentsDebuggingEnabled(false)
         webView = WebView(this)
         setContentView(webView)
-        webView.settings.javaScriptEnabled = true
-        webView.settings.domStorageEnabled = true
-        webView.settings.allowFileAccess = true
-        webView.settings.allowContentAccess = true
+
+        webView.settings.apply {
+            javaScriptEnabled = true
+            domStorageEnabled = true
+            allowFileAccess = true // Required to load the bundled app from android_asset.
+            allowContentAccess = false
+            allowFileAccessFromFileURLs = false
+            allowUniversalAccessFromFileURLs = false
+            javaScriptCanOpenWindowsAutomatically = false
+            setSupportMultipleWindows(false)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                safeBrowsingEnabled = true
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW
+            }
+        }
+
         webView.webChromeClient = WebChromeClient()
         webView.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-                val uri = request?.url ?: return false
-                return openExternal(uri)
+                val uri = request?.url ?: return true
+                if (request.isForMainFrame) return openExternal(uri)
+                return true // Do not allow subframes to navigate or load external content.
             }
+
             @Suppress("DEPRECATION")
             override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
-                if (url == null) return false
+                if (url == null) return true
                 return openExternal(Uri.parse(url))
             }
+
+            override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler?, error: SslError?) {
+                handler?.cancel() // Never bypass certificate errors.
+            }
         }
+
         webView.addJavascriptInterface(AndroidBridge(), "AndroidBridge")
         if (savedInstanceState == null) webView.loadUrl("file:///android_asset/index.html")
         else webView.restoreState(savedInstanceState)
     }
 
     private fun openExternal(uri: Uri): Boolean {
-        val scheme = uri.scheme ?: return false
-        if (scheme == "file" || scheme == "about" || scheme == "javascript") return false
+        val scheme = uri.scheme?.lowercase() ?: return true
+        if (scheme == "file" || scheme == "about") return false
         return try {
-            startActivity(Intent(Intent.ACTION_VIEW, uri))
+            when {
+                scheme == "https" && uri.host.equals("wa.me", ignoreCase = true) -> {
+                    startActivity(Intent(Intent.ACTION_VIEW, uri))
+                }
+                scheme == "sms" -> {
+                    startActivity(Intent(Intent.ACTION_SENDTO, uri))
+                }
+                else -> return true // Block all other external schemes and hosts.
+            }
             true
         } catch (e: Exception) {
             showMessage("یہ لنک نہیں کھل سکا")
