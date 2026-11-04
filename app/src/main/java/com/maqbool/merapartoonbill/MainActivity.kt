@@ -36,6 +36,7 @@ class MainActivity : Activity() {
             allowFileAccessFromFileURLs = false
             allowUniversalAccessFromFileURLs = false
             javaScriptCanOpenWindowsAutomatically = false
+            blockNetworkLoads = true // The app works offline; all web network requests are blocked.
             setSupportMultipleWindows(false)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 safeBrowsingEnabled = true
